@@ -96,6 +96,9 @@ public class ContentStore {
     public List<ODocument> getPublishedPostsByTag(String tag) {
         return query("select * from post where status='published' where ? in tags order by date desc", tag);
     }
+    public List<ODocument> getPublishedPostsByPagination(int start, int limit) {
+        return query("select * from post where status='published' order by date desc SKIP "+start+" LIMIT "+limit);
+    }
 
     public List<ODocument> getPublishedPages() {
         return getPublishedContent("page");

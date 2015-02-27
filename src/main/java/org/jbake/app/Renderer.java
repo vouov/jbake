@@ -2,6 +2,8 @@ package org.jbake.app;
 
 import com.orientechnologies.orient.core.db.document.ODatabaseDocumentTx;
 
+import com.orientechnologies.orient.core.record.impl.ODocument;
+import freemarker.template.SimpleSequence;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.jbake.app.ConfigUtil.Keys;
 import org.jbake.template.DelegatingTemplateEngine;
@@ -34,6 +36,7 @@ public class Renderer {
     private File destination;
     private CompositeConfiguration config;
     private final DelegatingTemplateEngine renderingEngine;
+    private ContentStore db;
 
     /**
      * Creates a new instance of Renderer with supplied references to folders.
@@ -45,6 +48,7 @@ public class Renderer {
         this.destination = destination;
         this.config = config;
         this.renderingEngine = new DelegatingTemplateEngine(config, db, destination, templatesPath);
+        this.db = db;
     }
 
     private String findTemplateName(String docType) {
@@ -113,13 +117,51 @@ public class Renderer {
      * @throws Exception 
      */
     public void renderIndex(String indexFile) throws Exception {
-        File outputFile = new File(destination.getPath() + File.separator + indexFile);
-        StringBuilder sb = new StringBuilder();
-        sb.append("Rendering index [").append(outputFile).append("]...");
         Map<String, Object> model = new HashMap<String, Object>();
         model.put("renderer", renderingEngine);
         model.put("content", buildSimpleModel("index"));
+        model.put("pagination_pre",false);
+        model.put("pagination_next",false);
+        boolean hasNext = false;
+        int page=1;
+        int limit = 5;
+        List<ODocument> currentPosts = this.db.getPublishedPostsByPagination((page-1)*limit, limit);
+        do{
+            String fileName = indexFile;
+            if(page>1){
+                model.put("pagination_pre",true);
+                fileName = page+"_"+indexFile;
+                String preURL = (page-1)==1?indexFile:((page-1)+"_"+indexFile);
+                model.put("pagination_pre_url",preURL);
+            }
+            if(currentPosts!=null && !currentPosts.isEmpty()){
+                model.put("pagination_posts",new SimpleSequence(DocumentList.wrap(currentPosts.iterator())));
+                model.put("pagination_page",page);
+            }else{
+                return;
+            }
+            //query next index page data
+            page++;
+            List<ODocument> nextPosts = this.db.getPublishedPostsByPagination((page-1)*limit, limit);
+            if(nextPosts!=null && !nextPosts.isEmpty()){
+                hasNext = true;
+                model.put("pagination_next",true);
+                model.put("pagination_next_url",page+"_"+indexFile);
+            }else{
+                hasNext = false;
+                model.put("pagination_next",false);
+            }
 
+            File outputFile = new File(destination.getPath() + File.separator + fileName);
+            renderPaginationIndex(outputFile, model);
+            currentPosts = nextPosts;
+        }while (hasNext);
+
+    }
+
+    private void renderPaginationIndex(File outputFile, Map<String, Object> model) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Rendering index [").append(outputFile).append("]...");
         try {
             Writer out = createWriter(outputFile);
             renderingEngine.renderDocument(model, findTemplateName("index"), out);
